@@ -461,7 +461,7 @@ async function reloadCloudState(showToast=false){
   try{const next=await fetchCloudState();applyingRemote=true;state=next;cloudSnapshot=deepClone(next);selectedRec.clear();selectedSell.clear();renderAll();applyingRemote=false;try{localStorage.setItem(STORAGE_KEY,JSON.stringify(state))}catch(e){}markLastSync();setSyncStatus('synced','云端已同步');if(showToast)toast('已从云端刷新最新数据')}
   catch(err){applyingRemote=false;console.error('Cloud reload failed',err);setSyncStatus('error','读取失败');if(showToast)toast(`读取云端失败：${err.message||err}`,'error')}
 }
-function scheduleRemoteReload(delay=450){clearTimeout(remoteReloadTimer);remoteReloadTimer=setTimeout(()=>reloadCloudState(false),delay)}
+function scheduleRemoteReload(delay=1200){clearTimeout(remoteReloadTimer);remoteReloadTimer=setTimeout(()=>reloadCloudState(false),delay)}
 function subscribeRealtime(){
   if(realtimeChannel){cloudClient.removeChannel(realtimeChannel);realtimeChannel=null}
   let ch=cloudClient.channel(`replenishment-live-${currentUser.id}`);
@@ -581,7 +581,21 @@ function riskBadge(x){return x.transitNeedsConfirm?badge('在途批次需确认'
 function slowBadge(x){return x.slow==='dead'?badge('零动销','red'):x.slow==='severe'?badge('严重滞销','orange'):x.slow==='warn'?badge('滞销预警','purple'):badge('正常','green')}
 function sellThroughBadge(x){return !x.hasSellThrough?badge('未设置','gray'):x.transitNeedsConfirm?badge('先确认在途','red'):x.sellThroughStatus==='ended'?badge('已到截止日','red'):x.sellThroughStatus==='excess'?badge(`预计剩余 ${fmt(x.sellThroughExcess)}`,'orange'):x.sellThroughStatus==='need'?badge('截止前可补货','blue'):badge('预计按期售罄','green')}
 
-function renderAll(){renderDashboard();renderCurrentData();renderTransit();renderRecommendations();renderOrders();renderSellThrough();renderSlow();renderSettings();syncImportInputs();saveState()}
+function currentView(){
+  const active=document.querySelector('.view.active');
+  return active?.id?.replace('view-','')||'dashboard';
+}
+function renderView(view=currentView()){
+  if(view==='dashboard')renderDashboard();
+  else if(view==='import'){renderCurrentData();syncImportInputs();}
+  else if(view==='transit')renderTransit();
+  else if(view==='recommend')renderRecommendations();
+  else if(view==='orders')renderOrders();
+  else if(view==='sellthrough')renderSellThrough();
+  else if(view==='slow')renderSlow();
+  else if(view==='settings')renderSettings();
+}
+function renderAll(){renderView();saveState()}
 function renderDashboard(){
   const rows=rowsCalc(),air=rows.reduce((a,x)=>a+x.airQty,0),sea=rows.reduce((a,x)=>a+x.seaQty,0),slow=rows.filter(x=>x.slow!=='normal').length,urgent=rows.filter(x=>x.urgent).length,confirmCount=rows.filter(x=>x.transitNeedsConfirm).length;
   const periodSales=state.rows.reduce((a,r)=>a+n(r.sales),0),totalStock=state.rows.reduce((a,r)=>a+n(r.stock),0);
@@ -669,7 +683,7 @@ function renderSlow(){const all=getSlowRows(),totalQty=all.reduce((a,x)=>a+x.tot
 const SETTING_DEFS=[['salesDays','默认销量统计天数','导入数据没有重新设置时使用',1,365,1],['forecastFactor','销量预测系数','1.10 代表预测销量上调 10%',0.1,5,.05],['airLead','空运到仓天数','从入库单提交时间到海外仓可售',1,180,1],['seaLead','海运到仓天数','从入库单提交时间到海外仓可售',1,365,1],['safetyDays','安全库存天数','海运到仓后额外保留的安全缓冲',0,180,1],['seaCoverDays','海运目标覆盖天数','海运到仓后希望覆盖的正常销售天数',1,365,1],['slowWarnDays','滞销预警天数','总库存覆盖达到该值开始预警',1,1000,1],['severeSlowDays','严重滞销天数','总库存覆盖达到该值升级严重预警',1,2000,1],['minOrderQty','最小建议补货量','低于该数量的缺口向上补到此值',1,100000,1]];
 function renderSettings(){document.getElementById('settingsGrid').innerHTML=SETTING_DEFS.map(([k,t,d,min,max,step])=>`<div class="setting"><h4>${t}</h4><p>${d}</p><input type="number" data-setting-key="${k}" value="${state.settings[k]}" min="${min}" max="${max}" step="${step}"></div>`).join('')}
 function syncImportInputs(){document.getElementById('salesDaysInput').value=state.settings.salesDays;document.getElementById('forecastFactorInput').value=state.settings.forecastFactor}
-function switchView(view){document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));document.getElementById('view-'+view).classList.add('active');document.querySelectorAll('#nav button').forEach(x=>x.classList.toggle('active',x.dataset.view===view));const m=VIEW_META[view];document.getElementById('pageTitle').textContent=m[0];document.getElementById('pageSub').textContent=m[1];if(view==='transit')renderTransit();if(view==='recommend')renderRecommendations();if(view==='sellthrough')renderSellThrough();if(view==='slow')renderSlow();if(view==='orders')renderOrders()}
+function switchView(view){document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));document.getElementById('view-'+view).classList.add('active');document.querySelectorAll('#nav button').forEach(x=>x.classList.toggle('active',x.dataset.view===view));const m=VIEW_META[view];document.getElementById('pageTitle').textContent=m[0];document.getElementById('pageSub').textContent=m[1];renderView(view)}
 
 const FIELD_DEFS={
   sku:{label:'SKU',required:true,aliases:['sku','sku编码','商品sku','商品编码','货号','seller sku','merchant sku','msku']},
@@ -841,5 +855,6 @@ sortableTableObserver.observe(document.body,{childList:true,subtree:true});
 
 bindEvents();bindCloudEvents();renderAll();enhanceSortableTables();initCloudApp();
 </script>
+<script defer src="https://static.cloudflareinsights.com/beacon.min.js/v4513226cdae34746b4dedf0b4dfa099e1781791509496" integrity="sha512-ZE9pZaUXND66v380QUtch/5sE9tPFh2zg45pR2PB0CVkCtOREv2AJKkSidISWkysEuQ0EH8faUU5du78bx87UQ==" data-cf-beacon='{"version":"2024.11.0","token":"7939e04a4baf43c8b86a560f74aac60e","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
 </body>
 </html>
